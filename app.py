@@ -6,6 +6,8 @@ import json
 from fastapi import HTTPException
 import db_util 
 from datetime import datetime, timezone
+import time
+
 
 app = FastAPI()
 # Load OCI config from ~/.oci/config
@@ -55,6 +57,7 @@ async def extract(file: UploadFile = File(...)):
             )
         ]
     )
+    start_time = time.time()
     try:
         response = doc_client.analyze_document(request)
     except Exception as e:
@@ -64,7 +67,8 @@ async def extract(file: UploadFile = File(...)):
                 "error": "The service is currently unavailable. Please try again later."
             }
         )
-    
+    end_time = time.time()
+    prediction_time = end_time - start_time
     ###############################################START MY CODE######################################################
 
     data={}  # Stores the final extracted data returned by the OCI service 
@@ -131,7 +135,8 @@ async def extract(file: UploadFile = File(...)):
     result = {
         "confidence": confid,
         "data": data,
-        "dataConfidence": data_Confidence
+        "dataConfidence": data_Confidence,
+        "predictionTime": prediction_time
     }   
     # Save the extracted invoice data and confidence information to the database    
     db_util.save_inv_extraction(result)
