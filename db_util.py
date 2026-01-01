@@ -1,6 +1,6 @@
 import sqlite3     # SQLite database engine (file-based DB)
 from contextlib import contextmanager     # Helps create a safe DB connection context manager
-import app         # Imported but not used here 
+ 
 
 # Path/name of the SQLite database file 
 DB_PATH = "invoices.db"
