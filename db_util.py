@@ -1,104 +1,76 @@
-import sqlite3     # SQLite database engine (file-based DB)
-from contextlib import contextmanager     # Helps create a safe DB connection context manager
- 
+import sqlite3
+from contextlib import contextmanager
 
-# Path/name of the SQLite database file 
+
+
 DB_PATH = "invoices.db"
 
 @contextmanager
 def get_db():
-    """
-    Open a database connection and automatically commit/close it.
-
-    Why we use it:
-    - Ensures every DB operation uses the same pattern:
-      open connection -> do work -> commit -> close
-    - Prevents forgetting conn.close() or conn.commit()
-    """
-    conn = sqlite3.connect(DB_PATH)     # Create a new connection to the DB file
+    conn = sqlite3.connect(DB_PATH)
     try:
-        yield conn     # Yield the connection to the calling code
-        conn.commit()  # Commit changes after successful operations
+        yield conn
+        conn.commit()
     finally:
-        conn.close()   # Always close connection (even if an error happens)
-            
-        
+        conn.close()
 
 
 def init_db():
-    """
-    Initialize the DB schema: create tables if they do not exist.
-
-    Tables:
-    - invoices: main invoice data (one row per invoice)
-    - confidences: confidence score per extracted field (one row per invoice)
-    - items: invoice line items (multiple rows per invoice)
-    """
-    with get_db() as conn:      # Open DB connection using our context manager
-        cursor = conn.cursor()   # Cursor executes SQL commands
-         # Create 'invoices' table: stores the extracted invoice fields
+    with get_db() as conn:
+        cursor = conn.cursor()
+        
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS invoices (
-                InvoiceId TEXT PRIMARY KEY,     -- Unique invoice identifier (primary key)
-                VendorName TEXT,                -- Vendor / supplier name
-                InvoiceDate TEXT,               -- Invoice date (stored as text)
-                BillingAddressRecipient TEXT,     -- Person/company receiving the bill  
-                ShippingAddress TEXT,           -- Shipping address
-                SubTotal REAL,                  -- Subtotal value
-                ShippingCost REAL,              -- Shipping cost
-                InvoiceTotal REAL                -- Final total
+                InvoiceId TEXT PRIMARY KEY,
+                VendorName TEXT,
+                InvoiceDate TEXT,
+                BillingAddressRecipient TEXT,
+                ShippingAddress TEXT,
+                SubTotal REAL,
+                ShippingCost REAL,
+                InvoiceTotal REAL
+                
             )
         """)
-        # Create 'confidences' table: stores confidence for each extracted field
+        
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS confidences (
-                InvoiceId TEXT PRIMARY KEY,      -- Same invoice id, one-to-one with invoices
-                VendorName REAL,                 -- Confidence score for VendorName
-                InvoiceDate REAL,                -- Confidence score for InvoiceDate
-                BillingAddressRecipient REAL,    -- Confidence score for BillingAddressRecipient
-                ShippingAddress REAL,            -- Confidence score for ShippingAddress
-                SubTotal REAL,                   -- Confidence score for SubTotal
-                ShippingCost REAL,                -- Confidence score for ShippingCost
-                InvoiceTotal REAL,                 -- Confidence score for InvoiceTotal
-                FOREIGN KEY (InvoiceId) REFERENCES invoices(InvoiceId)            -- Ensures this invoice must exist in invoices table
+                InvoiceId TEXT PRIMARY KEY,
+                VendorName REAL,
+                InvoiceDate REAL,
+                BillingAddressRecipient REAL,
+                ShippingAddress REAL,
+                SubTotal REAL,
+                ShippingCost REAL,
+                InvoiceTotal REAL,
+                FOREIGN KEY (InvoiceId) REFERENCES invoices(InvoiceId)
             )
         """)
-        # Create 'items' table: stores invoice line items (one invoice can have many items)
+        
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS items (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,    -- Unique auto ID for each item row
-                InvoiceId TEXT,                          -- Which invoice this item belongs to
-                Description TEXT,                        -- Item description
-                Name TEXT,                               -- Item name
-                Quantity REAL,                           -- Quantity (REAL because OCI may output decimals)
-                UnitPrice REAL,                          -- Unit price
-                Amount REAL,                             -- Total for the line item
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                InvoiceId TEXT,
+                Description TEXT,
+                Name TEXT,
+                Quantity REAL,
+                UnitPrice REAL,
+                Amount REAL,
                 FOREIGN KEY (InvoiceId) REFERENCES invoices(InvoiceId)
-                                                      -- Links each item to an invoice
             )
         """)
 
 
 def save_inv_extraction(result):
-    """
-    Save the extracted invoice result into the DB.
-
-    result is expected to match:
-    {
-      "confidence": <document confidence>,
-      "data": {...invoice fields...},
-      "dataConfidence": {...confidence per field...}
-    }
-    """
-    data = result.get("data", {})                          # Extract the invoice fields dictionary safely
-    data_confidence = result.get("dataConfidence", {})     # Extract confidence per field safely
+    data = result.get("data", {})
+    data_confidence = result.get("dataConfidence", {})
     
-    invoice_id = data.get("InvoiceId")                        # InvoiceId is the primary key   
-    if invoice_id:       # Only save if InvoiceId exists
-        with get_db() as conn:          # Open DB connection
-            cursor = conn.cursor()      # Create cursor for SQL
+    invoice_id = data.get("InvoiceId")
+    if invoice_id:
+        with get_db() as conn:
+            cursor = conn.cursor()
             
-            # Insert invoice   # Insert or replace invoice row (replace allows updating same InvoiceId)
+            # Insert invoice
             cursor.execute("""
                 INSERT OR REPLACE INTO invoices 
                 (InvoiceId, VendorName, InvoiceDate, BillingAddressRecipient, 
@@ -115,16 +87,16 @@ def save_inv_extraction(result):
                 data.get("InvoiceTotal")
             ))
             
-            # Insert confidences         # Insert or replace confidence row (one row per invoice)
+            # Insert confidences
             cursor.execute("""
                 INSERT OR REPLACE INTO confidences 
                 (InvoiceId, VendorName, InvoiceDate, BillingAddressRecipient,
                  ShippingAddress, SubTotal, ShippingCost, InvoiceTotal)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """, (
-                invoice_id,    # Same InvoiceId
-                data_confidence.get("VendorName"),  # Confidence for VendorName
-                data_confidence.get("InvoiceDate"),   # Confidence for InvoiceDate
+                invoice_id,
+                data_confidence.get("VendorName"),
+                data_confidence.get("InvoiceDate"),
                 data_confidence.get("BillingAddressRecipient"),
                 data_confidence.get("ShippingAddress"),
                 data_confidence.get("SubTotal"),
@@ -133,62 +105,84 @@ def save_inv_extraction(result):
             ))
             
             # Insert line items
-            # First delete existing items for this invoice to avoid duplicates on replace
-            line_items = data.get("Items", [])    # List of item dicts
+            line_items = data.get("Items", [])
             cursor.execute("DELETE FROM items WHERE InvoiceId = ?", (invoice_id,))
-             # Insert each item as its own row in items table
             for item in line_items:
                 cursor.execute("""
                     INSERT INTO items 
                     (InvoiceId, Description, Name, Quantity, UnitPrice, Amount)
                     VALUES (?, ?, ?, ?, ?, ?)
                 """, (
-                    invoice_id,  # Foreign key referencing invoice
+                    invoice_id,
                     item.get("Description"),
                     item.get("Name"),
                     item.get("Quantity"),
                     item.get("UnitPrice"),
                     item.get("Amount")
                 ))
-
-def get_invoices_by_vendor(vendor_name): #Retrieve all invoices for a given vendor name.Returns:A list of full invoice dictionaries (each includes Items)
-    
-    with get_db() as conn:    # Open DB connection
-        cursor = conn.cursor()   # Cursor for SQL
-        cursor.execute("select InvoiceId from invoices where VendorName = ?",(vendor_name,))
-        rows= cursor.fetchall()              # List of tuples [(InvoiceId,), ...]
-        invoices = []                         # Will store full invoice dictionaries
-         # For each invoice id found, fetch full invoice details using getInvoiceById()
-        for r in rows:
-            invoice_id = r[0]                  # Tuple first element = InvoiceId
-            invoices.append(getInvoiceById(invoice_id))   # Fetch full invoice structure
-
-    return invoices
-
-def getInvoiceById(invoice_id): #Retrieve a full invoice by its ID (including Items).
-    #Returns:
-    #- dict with invoice fields and Items list    - None if invoice does not exist
-    with get_db() as conn:         # Open DB connection
+"""
+    Retrieves all invoices associated with a given vendor name.
+    This function queries the database for invoice IDs that match the provided
+    vendor name, then fetches the full invoice details for each invoice ID.
+    Parameters:
+        vendor_name (str): The name of the vendor.
+    Returns:
+        list: A list of invoice records associated with the vendor.
+              Returns an empty list if no invoices are found.
+"""
+def get_invoices_by_vendor(vendor_name):
+    # Open a database connection using the context manager
+    with get_db() as conn:
+        # Create a database cursor to execute SQL queries
         cursor = conn.cursor()
-        # Select invoice row from invoices table
+        # Execute a query to retrieve invoice IDs for the given vendor name
+        cursor.execute("select InvoiceId from invoices where VendorName = ?",(vendor_name,))
+        # Fetch all matching rows from the query result
+        rows= cursor.fetchall()
+        invoices = []
+        # Iterate over each returned row
+        for r in rows:
+            invoice_id = r[0]  
+            # Retrieve the full invoice details using the invoice ID
+            invoices.append(getInvoiceById(invoice_id))  
+    # Return the list of invoices associated with the vendor        
+    return invoices
+"""
+    Retrieves a single invoice and its associated items by invoice ID.
+    This function queries the database for an invoice record using the given
+    invoice ID. If the invoice exists, it also retrieves all related line items
+    from the items table and returns a structured dictionary containing the
+    invoice details and its items.
+    Parameters:
+        invoice_id (str | int): The unique identifier of the invoice.
+    Returns:
+        dict | None: A dictionary containing invoice details and items if found,
+                     or None if the invoice does not exist.
+"""
+def getInvoiceById(invoice_id):
+    with get_db() as conn:
+        cursor = conn.cursor()
+        # Query the invoices table for the invoice with the given ID
         cursor.execute("""
             SELECT *
             FROM invoices
             WHERE InvoiceId = ?;
         """, (invoice_id,))
-        row = cursor.fetchone()      # Single row or None
-        # If invoice doesn't exist, return None
+        # Fetch a single invoice record
+        row = cursor.fetchone()
         if not row:
             return None
-         # Select all items that belong to this invoice
+        # Query the items table for all items related to the invoice
         cursor.execute("""
             SELECT Description, Name, Quantity, UnitPrice, Amount
             FROM items
             WHERE InvoiceId = ?;
         """, (invoice_id,))
-        items_rows = cursor.fetchall()    # List of item rows
-      # Convert items rows into list of dictionaries
+        # Fetch all item rows related to the invoice
+        items_rows = cursor.fetchall()
+    
     items = []
+    # Iterate over each item row and build a structured dictionary
     for item in items_rows:
         items.append({
             "Description": item[0],
@@ -197,7 +191,7 @@ def getInvoiceById(invoice_id): #Retrieve a full invoice by its ID (including It
             "UnitPrice": item[3],
             "Amount": item[4]
         })
-# Convert invoice row into a dictionary that matches API response scheme
+    # Return the full invoice data including its items
     return {
         "InvoiceId": row[0],
         "VendorName": row[1],
@@ -209,3 +203,20 @@ def getInvoiceById(invoice_id): #Retrieve a full invoice by its ID (including It
         "InvoiceTotal": row[7],
         "Items": items
     }
+def clean_db():
+    """
+    Cleans the database by removing all test data.
+    This function is used after each integration test
+    to ensure database isolation.
+    """
+    with get_db() as conn:
+        cursor = conn.cursor()
+
+        # Delete child table first (because of FK relations)
+        cursor.execute("DELETE FROM items;")
+        cursor.execute("DELETE FROM invoices;")
+
+        conn.commit()
+
+
+    
