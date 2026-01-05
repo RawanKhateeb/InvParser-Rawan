@@ -42,7 +42,7 @@ async def extract(file: UploadFile = File(...)):
     # Validate that the file is a PDF by content type or file extension
     if not (is_pdf_content_type or is_pdf_filename):
         # Raise an HTTP 400 error if the file is not a valid PDF
-        raise HTTPException(
+        raise HTTPException( 
             status_code=400,
             detail="Invalid document. Please upload a valid PDF invoice with high confidence."
         )
