@@ -79,7 +79,7 @@ def build_fake_oci_response(doc_type_confidence=0.95, include_document_fields=Tr
     fake_response.data = data
     return fake_response
 #-----------Testing Department-------------------------------------------
-class TestYourFeature(unittest.TestCase):
+class TestNewExtract(unittest.TestCase):
     """Integration tests for POST /extract (success + failures)"""
     def setUp(self):
         init_db()            #Preparing the tests
