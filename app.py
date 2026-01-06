@@ -216,7 +216,7 @@ def getInvoiceByVendorName(vendor_name):
 """
 from datetime import datetime, timezone
 
-def format_date_to_iso(date_text): # pragma: no cover
+def format_date_to_iso(date_text): 
     if date_text is None:
         return ""
 
@@ -271,7 +271,7 @@ def format_date_to_iso(date_text): # pragma: no cover
     Removes currency symbols and formatting from amount strings.
     Returns float or empty string if invalid.
 """  
-def clean_amount(key,value):# pragma: no cover
+def clean_amount(key,value):
 
     if not value:
         return ""
