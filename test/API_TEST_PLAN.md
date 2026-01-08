@@ -40,7 +40,7 @@
     - One happy-path test
     - One negative or edge-case test
 - **High code coverage**:
-  - Aim for as close as possible to **100% coverage** of API code.
+  - Aim for as close as possible to **90% coverage** of API code.
 - **CI stability**:
   - All tests must pass consistently in GitHub Actions without external dependencies.
 ---
