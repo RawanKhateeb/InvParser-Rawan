@@ -5,13 +5,23 @@ import base64
 import json
 from fastapi import HTTPException
 import db_util 
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 import time
 
 app = FastAPI()
 # Load OCI config from ~/.oci/config
-config = oci.config.from_file()
-doc_client = oci.ai_document.AIServiceDocumentClient(config)
+#config = oci.config.from_file()
+#doc_client = oci.ai_document.AIServiceDocumentClient(config)
+
+doc_client = None
+
+def get_doc_client():
+    global doc_client
+    if doc_client is None:
+        config = oci.config.from_file()
+        doc_client = oci.ai_document.AIServiceDocumentClient(config)
+    return doc_client
+
 
 """
     Receives an uploaded file and processes it for data extraction.
@@ -32,7 +42,7 @@ async def extract(file: UploadFile = File(...)):
     # Validate that the file is a PDF by content type or file extension
     if not (is_pdf_content_type or is_pdf_filename):
         # Raise an HTTP 400 error if the file is not a valid PDF
-        raise HTTPException(
+        raise HTTPException( 
             status_code=400,
             detail="Invalid document. Please upload a valid PDF invoice with high confidence."
         )
@@ -58,7 +68,8 @@ async def extract(file: UploadFile = File(...)):
     )
     try:
         start_time = time.time()   # זמן התחלה
-        response = doc_client.analyze_document(request)
+        client = get_doc_client()
+        response = client.analyze_document(request)        
         end_time = time.time()     # זמן סיום
         prediction_time = end_time - start_time
         print(f"Time taken: {prediction_time:.2f} seconds")
@@ -123,6 +134,7 @@ async def extract(file: UploadFile = File(...)):
                 # Store the confidence score associated with this field under the same key
                 data_Confidence[field_key]=field_confidence
     # Check if OCI returned detected document types (field is optional)
+    confid = 0.0
     if response.data.detected_document_types:
         # Iterate over detected document types
         for validCon in response.data.detected_document_types:
@@ -141,7 +153,14 @@ async def extract(file: UploadFile = File(...)):
         "dataConfidence": data_Confidence,
         "predictionTime": prediction_time  # add the prediction time to the response
     }   
-    # Save the extracted invoice data and confidence information to the database    
+    # Save the extracted invoice data and confidence information to the database  
+    """try:
+        db_util.save_inv_extraction(result)
+        except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to save extraction result"
+    )"""
     db_util.save_inv_extraction(result)
     # Return the final result as the API response
     return result
@@ -197,28 +216,56 @@ def getInvoiceByVendorName(vendor_name):
 """
 from datetime import datetime, timezone
 
-def format_date_to_iso(date_text):
-    if not date_text:
+def format_date_to_iso(date_text): 
+    if date_text is None:
         return ""
 
-    date_text = str(date_text).strip()
+    # If already a datetime/date object
+    if isinstance(date_text, datetime):
+        dt = date_text
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(timezone.utc).isoformat()
+    if isinstance(date_text, date) and not isinstance(date_text, datetime):
+        dt = datetime(date_text.year, date_text.month, date_text.day, tzinfo=timezone.utc)
+        return dt.isoformat()
 
-    # 1) If already ISO with timezone (e.g. 2012-03-06T00:00:00+00:00 or ...Z)
-    if "T" in date_text and (date_text.endswith("Z") or "+" in date_text or "-" in date_text[19:]):
-        try:
-            dt = datetime.fromisoformat(date_text.replace("Z", "+00:00"))
+    s = str(date_text).strip()
+    if not s:
+        return ""
+
+    # Already ISO (with timezone or Z)
+    try:
+        if "T" in s:
+            dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
             if dt.tzinfo is None:
                 dt = dt.replace(tzinfo=timezone.utc)
-            return dt.isoformat()
-        except ValueError:
-            pass
-
-    # 2) OCR format: "March 6, 2012"
-    try:
-        dt = datetime.strptime(date_text, "%B %d, %Y")
-        return dt.replace(tzinfo=timezone.utc).isoformat()
+            return dt.astimezone(timezone.utc).isoformat()
     except ValueError:
-        return ""
+        pass
+
+    # Try multiple common formats
+    fmts = [
+        "%B %d %Y",   # March 6, 2012
+        "%b %d %Y",   # Mar 6, 2012
+        "%m/%d/%Y",    # 03/06/2012
+        "%m/%d/%y",    # 03/06/12
+        "%m-%d-%Y",    # 03-06-2012
+        "%Y-%m-%d",    # 2012-03-06
+        "%d/%m/%Y",    # 06/03/2012 (if OCR outputs this)
+        "%d-%b-%Y",    # 06-Mar-2012
+        "%d %b %Y",    # 06 Mar 2012
+    ]
+
+    for fmt in fmts:
+        try:
+            dt = datetime.strptime(s, fmt)
+            return dt.replace(tzinfo=timezone.utc).isoformat()
+        except ValueError:
+            continue
+
+    # If nothing matched, keep old behavior
+    return ""
 
 """
     Removes currency symbols and formatting from amount strings.
@@ -239,7 +286,7 @@ def clean_amount(key,value):
     except ValueError:
         return ""
 
-if __name__ == "__main__":
+if __name__ == "__main__": # pragma: no cover
     import uvicorn
     db_util.init_db()
     uvicorn.run(app, host="0.0.0.0", port=8080)
