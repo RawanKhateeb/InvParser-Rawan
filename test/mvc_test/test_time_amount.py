@@ -1,8 +1,8 @@
 import unittest
 from datetime import datetime, date, timezone
 
-# Change this import if needed:
-from app import format_date_to_iso, clean_amount
+#from app import format_date_to_iso, clean_amount
+from mvc_model.controller.controller import format_date_to_iso,clean_amount
 
 
 class TestFormatDateToIso(unittest.TestCase):
@@ -57,8 +57,6 @@ class TestFormatDateToIso(unittest.TestCase):
     def test_iso_without_timezone_adds_utc(self):
         out = format_date_to_iso("2012-03-06T10:30:00")
         self.assertTrue(out.endswith("+00:00"))
-
-
 
 
 class TestCleanAmount(unittest.TestCase):
